@@ -53,14 +53,11 @@ psram:
 logger:
 
 # Connection handlers live on the voice_assistant (fires only for the HA
-# client), not on the API (which fires for any log/CLI client as well)
+# client), not on the API (which fires for any log/CLI client as well).
+# The API encryption key and the ota: block are intentionally NOT set here:
+# both are per-device values that the ESPHome Builder wizard generates into
+# your device YAML - keep them there (see README).
 api:
-  encryption:
-    key: !secret api_encryption_key
-
-ota:
-  - platform: esphome
-    password: !secret ota_password
 
 safe_mode:
 

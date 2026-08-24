@@ -45,14 +45,13 @@ Lautsprecher am Verstärkerausgang (4-8 Ohm) und ein Gehäuse nach Wahl.
 Voraussetzung: Home Assistant mit dem
 [ESPHome-Builder](https://esphome.io/guides/getting_started_hassio.html)-Add-on.
 
-1. Im ESPHome Builder ein neues Gerät anlegen und die erzeugte YAML ersetzen
-   durch:
+1. Im ESPHome Builder ein neues Gerät anlegen (jedes ESP32-S3-Board im
+   Wizard ist ok, das Package setzt die korrekten Board-Einstellungen). Die
+   erzeugte YAML unverändert lassen - samt gerätespezifischem
+   API-Verschlüsselungs-Key, `ota:`- und Fallback-Hotspot-Block - und nur
+   einen Block ergänzen:
 
    ```yaml
-   substitutions:
-     device_name: kustos-voice        # Hostname des Geräts
-     friendly_name: Kustos Voice
-
    packages:
      kustos_voice: github://Qorvano/kustos-voice/kustos-voice-de.yaml@main
    ```
@@ -60,14 +59,13 @@ Voraussetzung: Home Assistant mit dem
    Für englische Bedienelement-Namen stattdessen
    `github://Qorvano/kustos-voice/kustos-voice.yaml@main` verwenden.
 
-2. In der `secrets.yaml` des Builders müssen stehen (siehe
+2. Als geteilte Secrets braucht das Package nur die WLAN-Zugangsdaten in der
+   `secrets.yaml` des Builders (meist ohnehin vorhanden; siehe
    [secrets.yaml.example](secrets.yaml.example)):
 
    ```yaml
    wifi_ssid: "..."
    wifi_password: "..."
-   api_encryption_key: "..."   # openssl rand -base64 32
-   ota_password: "..."
    ```
 
 3. Installieren. Beim Erstflash "Plug into this computer" wählen und per USB

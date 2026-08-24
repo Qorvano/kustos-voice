@@ -45,14 +45,12 @@ Prerequisites: Home Assistant with the
 [ESPHome Builder](https://esphome.io/guides/getting_started_hassio.html)
 add-on.
 
-1. In the ESPHome Builder, create a new device and replace the generated
-   YAML with:
+1. In the ESPHome Builder, create a new device (any ESP32-S3 board is fine,
+   the package pins the correct board settings). Keep the wizard-generated
+   YAML as it is - including its per-device API encryption key, `ota:` and
+   fallback-hotspot blocks - and just add one block:
 
    ```yaml
-   substitutions:
-     device_name: kustos-voice        # your device's hostname
-     friendly_name: Kustos Voice
-
    packages:
      kustos_voice: github://Qorvano/kustos-voice/kustos-voice.yaml@main
    ```
@@ -60,14 +58,13 @@ add-on.
    For German entity names use
    `github://Qorvano/kustos-voice/kustos-voice-de.yaml@main` instead.
 
-2. Make sure your builder's `secrets.yaml` contains (see
+2. The only shared secrets the package needs are your Wi-Fi credentials in
+   the builder's `secrets.yaml` (usually already there; see
    [secrets.yaml.example](secrets.yaml.example)):
 
    ```yaml
    wifi_ssid: "..."
    wifi_password: "..."
-   api_encryption_key: "..."   # openssl rand -base64 32
-   ota_password: "..."
    ```
 
 3. Install. For the first flash choose "Plug into this computer" and flash
