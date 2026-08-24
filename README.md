@@ -118,6 +118,10 @@ configuration surface and docs are bilingual.
   "responding"**: Home Assistant cached the device's audio formats from a
   previous firmware and serves TTS as MP3 (this firmware decodes FLAC).
   Reload the ESPHome integration entry in Home Assistant once.
+- **A wake word is detected but the ring just flashes twice** (also when
+  adding a second wake word): the assigned assistant pipeline, often the
+  "Preferred" one, has no speech-to-text engine. Assign a pipeline with STT
+  to that wake word slot, or make an STT-capable pipeline the preferred one.
 - **Detection quality**: tune the wake word threshold slider; every
   detection logs its probability in the device log.
 

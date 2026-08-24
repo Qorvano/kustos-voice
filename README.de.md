@@ -120,6 +120,11 @@ Oberflaeche und Doku sind zweisprachig.
   Firmware zwischengespeichert und liefert TTS als MP3 (diese Firmware
   dekodiert FLAC). Einmal den ESPHome-Integrationseintrag in Home Assistant
   neu laden.
+- **Wake Word wird erkannt, aber der Ring blitzt nur zweimal** (auch beim
+  Ergänzen eines zweiten Aktivierungsworts): Der zugewiesene Assistent, oft
+  der "Bevorzugte", hat keine Spracherkennung (STT). Dem Wake-Word-Slot
+  eine Pipeline mit STT zuweisen oder eine STT-fähige Pipeline als
+  bevorzugt markieren.
 - **Erkennungsqualität**: über den Schwellen-Slider abstimmen; jede
   Erkennung protokolliert ihre Wahrscheinlichkeit im Geräte-Log.
 
