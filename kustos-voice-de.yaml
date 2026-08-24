@@ -1,0 +1,26 @@
+# kustos-voice mit deutschen Bedienelement-Namen.
+# Identische Firmware wie kustos-voice.yaml, nur die user-facing Namen sind
+# uebersetzt. Eigene Anpassungen (Geraetename etc.) per substitutions-Override
+# in der eigenen Einstiegs-YAML, siehe README.
+
+packages:
+  base: !include kustos-voice.yaml
+
+substitutions:
+  name_afe: Audio-Front-End
+  name_amplifier: Verstärker
+  name_status_ring: Statusring
+  effect_glow: Glimmen
+  effect_breathe: Atmen
+  effect_breathe_fast: Atmen schnell
+  effect_pulse: Pulsieren
+  effect_circle: Kreisen
+  name_key_volume_down: Taste leiser
+  name_key_play_pause: Taste Play-Pause
+  name_key_volume_up: Taste lauter
+  name_mic_mute: Mikrofon stumm
+  name_wake_ack: Aktivierungston
+  name_mic_gain: Mikrofon-Verstärkung
+  name_stt_noise_suppression: Rauschunterdrückung STT
+  name_wake_word_cutoff: Wake-Word-Schwelle
+  name_restart: Neustart

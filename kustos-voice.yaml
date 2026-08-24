@@ -1,0 +1,140 @@
+# kustos-voice: a Home Assistant voice satellite + Music Assistant speaker
+# for the Waveshare ESP32-S3-AUDIO board. Author: Qorvano.
+#
+# Highlights: 48 kHz HiFi playback, full-duplex TDM audio bus, and Espressif's
+# esp-sr audio front-end (AEC against a hardware echo reference, blind source
+# separation across both mic capsules, AGC) for music barge-in at range.
+#
+# Install via the ESPHome Builder (dashboard): see README.md. The esp-sr
+# front-end is fetched at YOUR build time; prebuilt binaries of this config
+# must not be redistributed (license details in NOTICE.md).
+#
+# German entity names: use kustos-voice-de.yaml as your entry point instead.
+# Component base: ESPHome (GPLv3/MIT), details in NOTICE.md.
+
+substitutions:
+  device_name: kustos-voice
+  friendly_name: Kustos Voice
+  # Shared bus clock: 48 kHz for HiFi playback; the microphone path decimates
+  # internally to the 16 kHz required by wake word and voice assistant.
+  i2s_sample_rate: 48000
+  mclk_multiple: 256
+  name_afe: Audio front-end
+  components_source: github://Qorvano/kustos-voice@main
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+  min_version: 2026.6.0
+  on_boot:
+    - priority: 250
+      then:
+        # offline indicator until Home Assistant connects
+        - script.execute:
+            id: led_show
+            state: offline
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  flash_size: 16MB
+  cpu_frequency: 240MHz
+  framework:
+    type: esp-idf
+    sdkconfig_options:
+      # wake word inference runs noticeably faster; costs a little PSRAM
+      CONFIG_SPIRAM_RODATA: "y"
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "y"
+
+psram:
+  mode: octal      # ESP32-S3R8: 8 MB octal PSRAM
+  speed: 80MHz
+
+logger:
+
+# Connection handlers live on the voice_assistant (fires only for the HA
+# client), not on the API (which fires for any log/CLI client as well)
+api:
+  encryption:
+    key: !secret api_encryption_key
+
+ota:
+  - platform: esphome
+    password: !secret ota_password
+
+safe_mode:
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  power_save_mode: none   # audio streaming and latency over power saving
+  on_disconnect:
+    - script.execute:
+        id: led_show
+        state: offline
+
+external_components:
+  # Default: fetch the patched components from this repository (works when this
+  # file is consumed as a remote package via the ESPHome Builder). For local
+  # development, override components_source with the path to your checkout.
+  - source: ${components_source}
+    components: [ es8311, es7210, i2s_audio, afe_mic ]
+
+# Wake word models: any microWakeWord model URL works here, including your own
+# (see docs/wake-word-training.md). The "Wake word threshold" slider in Home
+# Assistant applies live to every non-internal model listed here.
+micro_wake_word:
+  id: mww
+  microphone:
+    microphone: mic_input
+    channels: 0
+  stop_after_detection: false
+  models:
+    - model: okay_nabu
+      id: wake_word_primary
+    - model: hey_jarvis
+      id: wake_word_secondary
+    - model: https://github.com/kahrendt/microWakeWord/releases/download/stop/stop.json
+      id: wake_word_stop
+      internal: true
+  # Voice activity gate kept very permissive: only reject clear non-speech.
+  # The component default (0.5) demands speech dominance in the signal and
+  # suppresses barge-in into running music massively (observed: range drops
+  # below 1 m). 0.03 is the value validated on this board.
+  vad:
+    probability_cutoff: 0.03
+  on_wake_word_detected:
+    - script.execute:
+        id: handle_wake_word
+        wake_word: !lambda return wake_word;
+
+# Enable the esp-sr audio front-end on the microphone path (AEC + BSS + AGC).
+# Remove this block for a build without esp-sr (license-clean for binary
+# redistribution, at the cost of music barge-in range).
+microphone:
+  - id: !extend mic_input
+    afe:
+      aec: true
+      bss: true
+      agc: true
+
+# Runtime A/B switch: front-end processing vs. raw passthrough
+switch:
+  - platform: template
+    name: ${name_afe}
+    id: afe_switch
+    icon: mdi:waveform
+    entity_category: config
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+    on_turn_on:
+      - lambda: id(mic_input).set_afe_enabled(true);
+    on_turn_off:
+      - lambda: id(mic_input).set_afe_enabled(false);
+
+packages:
+  hardware: !include packages/hardware_duplex.yaml
+  audio: !include packages/audio_duplex.yaml
+  voice: !include packages/voice.yaml
+  leds: !include packages/leds.yaml
+  controls: !include packages/controls.yaml

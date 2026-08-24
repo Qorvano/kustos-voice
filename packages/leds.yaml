@@ -1,0 +1,188 @@
+# Statusring (7x WS2812), Konzept "dezent-monochrom":
+# Eine einzige Akzentfarbe, die in Home Assistant am Licht eingestellt wird.
+# Die Scripts setzen nur Effekt und Helligkeit, nie die Farbe. Idle ist dunkel.
+#
+#   offline    kaum sichtbares, sehr langsames Atmen (Geraet lebt, HA fehlt)
+#   idle       aus; bei stummgeschaltetem Mikrofon schwaches Dauerglimmen
+#   listening  Atmen
+#   capturing  schnelleres Atmen (Sprache wird aufgenommen)
+#   thinking   eine einzelne LED kreist
+#   replying   ruhiges Dauerglimmen
+#   timer      Pulsieren
+#   error      zwei kurze Blitze in der Akzentfarbe, danach zurueck zum Grundzustand
+#
+# Hinweis: Die pulse-Effekte bringen ihre eigene Helligkeitskurve mit
+# (min/max_brightness); eine brightness beim turn_on wirkt dort nicht.
+# Unterscheidbarkeit der Zustaende kommt daher aus den Effekt-Parametern.
+
+substitutions:
+  name_status_ring: Status ring
+  # Effektnamen erscheinen im Licht-Dropdown in Home Assistant; die Scripts
+  # unten referenzieren sie ueber dieselben Substitutions
+  effect_glow: Glow
+  effect_breathe: Breathe
+  effect_breathe_fast: Breathe fast
+  effect_pulse: Pulse
+  effect_circle: Circle
+
+globals:
+  - id: led_base_state
+    type: std::string
+    restore_value: no
+    initial_value: '"offline"'
+  # solange true, zeigt der Ring den Fehler-Blink und led_show aendert nur den
+  # gemerkten Grundzustand, nicht die Anzeige
+  - id: led_error_active
+    type: bool
+    restore_value: no
+    initial_value: 'false'
+
+light:
+  - platform: esp32_rmt_led_strip
+    id: status_ring
+    name: ${name_status_ring}
+    pin: GPIO38
+    num_leds: 7
+    chipset: WS2812
+    rgb_order: RGB
+    default_transition_length: 250ms
+    restore_mode: RESTORE_DEFAULT_OFF
+    effects:
+      - pulse:
+          name: ${effect_glow}
+          transition_length: 3s
+          update_interval: 3s
+          min_brightness: 2%
+          max_brightness: 15%
+      - pulse:
+          name: ${effect_breathe}
+          transition_length: 1.6s
+          update_interval: 1.6s
+          min_brightness: 8%
+          max_brightness: 55%
+      - pulse:
+          name: ${effect_breathe_fast}
+          transition_length: 700ms
+          update_interval: 700ms
+          min_brightness: 15%
+          max_brightness: 70%
+      - pulse:
+          name: ${effect_pulse}
+          transition_length: 350ms
+          update_interval: 350ms
+          min_brightness: 20%
+          max_brightness: 90%
+      - addressable_lambda:
+          name: ${effect_circle}
+          update_interval: 90ms
+          lambda: |-
+            // eine einzelne LED wandert im Kreis, der Rest bleibt dunkel
+            static uint8_t pos = 0;
+            it.all() = Color::BLACK;
+            it[pos % it.size()] = current_color;
+            pos++;
+
+script:
+  - id: led_show
+    mode: restart
+    parameters:
+      state: string
+    then:
+      - lambda: id(led_base_state) = state;
+      - if:
+          condition:
+            # waehrend der Fehler-Blink laeuft, nur den Grundzustand merken;
+            # led_error wendet ihn danach selbst an
+            lambda: return !id(led_error_active);
+          then:
+            - if:
+                condition:
+                  lambda: 'return state == "idle";'
+                then:
+                  - if:
+                      condition:
+                        switch.is_on: mic_mute
+                      then:
+                        # Datenschutz-Anzeige: nicht dunkel, sondern schwach sichtbar
+                        - light.turn_on:
+                            id: status_ring
+                            brightness: 10%
+                            effect: none
+                      else:
+                        - light.turn_off: status_ring
+            - if:
+                condition:
+                  lambda: 'return state == "offline";'
+                then:
+                  - light.turn_on:
+                      id: status_ring
+                      effect: ${effect_glow}
+            - if:
+                condition:
+                  lambda: 'return state == "listening";'
+                then:
+                  - light.turn_on:
+                      id: status_ring
+                      effect: ${effect_breathe}
+            - if:
+                condition:
+                  lambda: 'return state == "capturing";'
+                then:
+                  - light.turn_on:
+                      id: status_ring
+                      effect: ${effect_breathe_fast}
+            - if:
+                condition:
+                  lambda: 'return state == "thinking";'
+                then:
+                  - light.turn_on:
+                      id: status_ring
+                      brightness: 70%
+                      effect: ${effect_circle}
+            - if:
+                condition:
+                  lambda: 'return state == "replying";'
+                then:
+                  - light.turn_on:
+                      id: status_ring
+                      brightness: 35%
+                      effect: none
+            - if:
+                condition:
+                  lambda: 'return state == "timer";'
+                then:
+                  - light.turn_on:
+                      id: status_ring
+                      effect: ${effect_pulse}
+
+  # transienter Fehler-Hinweis: zwei kurze Blitze in der Akzentfarbe,
+  # danach zurueck zum zuletzt gemerkten Grundzustand
+  - id: led_error
+    mode: restart
+    then:
+      - lambda: id(led_error_active) = true;
+      # laufenden Effekt beenden (effect und transition_length schliessen sich
+      # bei turn_on gegenseitig aus, daher zwei Schritte)
+      - light.turn_on:
+          id: status_ring
+          brightness: 80%
+          effect: none
+      - repeat:
+          count: 2
+          then:
+            - light.turn_off:
+                id: status_ring
+                transition_length: 0ms
+            - delay: 180ms
+            - light.turn_on:
+                id: status_ring
+                brightness: 80%
+                transition_length: 0ms
+            - delay: 120ms
+      - light.turn_off:
+          id: status_ring
+          transition_length: 0ms
+      - lambda: id(led_error_active) = false;
+      - script.execute:
+          id: led_show
+          state: !lambda return id(led_base_state);

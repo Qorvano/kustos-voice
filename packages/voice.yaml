@@ -1,0 +1,174 @@
+# Voice Assistant: Pipeline-Anbindung, Wake-Word-Behandlung und Sprach-Timer
+
+voice_assistant:
+  id: va
+  microphone:
+    microphone: mic_input
+    channels: 0
+  media_player: sat_media_player
+  micro_wake_word: mww
+  use_wake_word: false
+  on_client_connected:
+    - micro_wake_word.start:
+    - script.execute:
+        id: led_show
+        state: idle
+  on_client_disconnected:
+    - voice_assistant.stop:
+    # haengengebliebenes Ducking loesen, falls die Verbindung mitten im Lauf abriss
+    - mixer_speaker.apply_ducking:
+        id: media_channel
+        decibel_reduction: 0
+        duration: 1.0s
+    - script.execute:
+        id: led_show
+        state: offline
+  on_start:
+    - mixer_speaker.apply_ducking:
+        id: media_channel
+        decibel_reduction: 20
+        duration: 0.0s
+  on_listening:
+    - script.execute:
+        id: led_show
+        state: listening
+  on_stt_vad_start:
+    - script.execute:
+        id: led_show
+        state: capturing
+  on_stt_vad_end:
+    - script.execute:
+        id: led_show
+        state: thinking
+  on_tts_start:
+    - script.execute:
+        id: led_show
+        state: replying
+  on_error:
+    # Laeufe ohne erkannten Text und doppelte Wake-Word-Treffer sind Alltagsrauschen,
+    # kein anzeigewuerdiger Fehler
+    - if:
+        condition:
+          lambda: 'return code != "stt-no-text-recognized" && code != "duplicate_wake_up_detected";'
+        then:
+          - script.execute: led_error
+  on_end:
+    - wait_until:
+        not:
+          voice_assistant.is_running:
+    - if:
+        condition:
+          switch.is_off: timer_active
+        then:
+          - mixer_speaker.apply_ducking:
+              id: media_channel
+              decibel_reduction: 0
+              duration: 1.0s
+          - script.execute:
+              id: led_show
+              state: idle
+        else:
+          # Timer klingelt noch: dessen Anzeige nicht ueberschreiben
+          - script.execute:
+              id: led_show
+              state: timer
+  on_timer_finished:
+    - switch.turn_on: timer_active
+
+switch:
+  # interner Zustand "Timer klingelt"; Abschalten stoppt das Klingeln
+  # (per "Stopp"-Wort, beliebigem Wake Word oder aus Home Assistant)
+  - platform: template
+    id: timer_active
+    internal: true
+    optimistic: true
+    restore_mode: ALWAYS_OFF
+    on_turn_on:
+      - mixer_speaker.apply_ducking:
+          id: media_channel
+          decibel_reduction: 20
+          duration: 0.0s
+      - micro_wake_word.enable_model: wake_word_stop
+      - script.execute:
+          id: led_show
+          state: timer
+      - script.execute: timer_ring_loop
+    on_turn_off:
+      - script.stop: timer_ring_loop
+      - micro_wake_word.disable_model: wake_word_stop
+      - if:
+          condition:
+            media_player.is_announcing:
+          then:
+            - media_player.stop:
+                announcement: true
+      - mixer_speaker.apply_ducking:
+          id: media_channel
+          decibel_reduction: 0
+          duration: 1.0s
+      - script.execute:
+          id: led_show
+          state: idle
+
+script:
+  # Ein Wake-Word-Treffer bedeutet je nach Situation etwas anderes:
+  # Klingeln aus > laufenden Lauf abbrechen > Ansage abbrechen > Assistent starten
+  - id: handle_wake_word
+    parameters:
+      wake_word: string
+    then:
+      - if:
+          condition:
+            switch.is_on: mic_mute
+          then: []
+          else:
+            - if:
+                condition:
+                  switch.is_on: timer_active
+                then:
+                  - switch.turn_off: timer_active
+                else:
+                  - if:
+                      condition:
+                        voice_assistant.is_running:
+                      then:
+                        - voice_assistant.stop:
+                      else:
+                        - if:
+                            condition:
+                              media_player.is_announcing:
+                            then:
+                              - media_player.stop:
+                                  announcement: true
+                            else:
+                              # hoerbares Sofort-Feedback auf die Erkennung; ohne
+                              # den Ton wirken Treffer ausser Sichtweite der LED
+                              # wie Fehlschlaege
+                              - if:
+                                  condition:
+                                    switch.is_on: wake_ack
+                                  then:
+                                    - media_player.speaker.play_on_device_media_file:
+                                        media_file: wake_ack_sound
+                                        announcement: true
+                                    - delay: 300ms
+                              - voice_assistant.start:
+                                  wake_word: !lambda return wake_word;
+
+  - id: timer_ring_loop
+    mode: single
+    then:
+      # klingelt alle 10 s, bis timer_active abgeschaltet wird;
+      # Sicherheitsabschaltung nach 60 Wiederholungen (~10 Minuten)
+      - repeat:
+          count: 60
+          then:
+            - if:
+                condition:
+                  switch.is_on: timer_active
+                then:
+                  - media_player.speaker.play_on_device_media_file:
+                      media_file: timer_alert_sound
+                      announcement: true
+                  - delay: 10s
+      - switch.turn_off: timer_active

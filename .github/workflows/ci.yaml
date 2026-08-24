@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  compile:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # gleiche Version wie lokal gepinnt; Upgrade bewusst manuell
+      - name: ESPHome installieren
+        run: pip install esphome==2026.6.5
+
+      - name: Dummy-Secrets anlegen
+        run: |
+          cat > secrets.yaml <<'EOF'
+          wifi_ssid: "ci-dummy"
+          wifi_password: "ci-dummy-passwort"
+          api_encryption_key: "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+          ota_password: "ci-dummy"
+          EOF
+
+      - name: Firmware kompilieren
+        run: esphome compile kustos-voice.yaml

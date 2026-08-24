@@ -1,0 +1,92 @@
+# Audiokette am Vollduplex-TDM-Bus: afe_mic liest den dauerhaft aktiven
+# RX-Kanal (alle ADC-Slots) und liefert 16-kHz-Mono an die Sprachverarbeitung;
+# der Speaker leiht sich den TX-Kanal vom Bus. Ein MCLK-Bootstrap ist nicht
+# mehr noetig - der Takt steht ab Bus-Setup dauerhaft.
+
+microphone:
+  - platform: afe_mic
+    id: mic_input
+    i2s_audio_id: i2s_duplex
+    # Gemessenes ES7210-TDM-Slot-Layout dieses Boards (Treppenton-Verifikation
+    # 2026-08-24): MIC1, Echo-Referenz, MIC2, unbenutzt
+    input_format: MRMN
+
+speaker:
+  - platform: i2s_audio
+    id: speaker_output
+    i2s_audio_id: i2s_duplex
+    # kein i2s_dout_pin: im Duplex-Modus besitzt der Bus den Pin
+    dac_type: external
+    audio_dac: speaker_dac
+    sample_rate: ${i2s_sample_rate}
+    bits_per_sample: 16bit
+    channel: stereo
+    timeout: never
+    buffer_duration: 100ms
+
+  # Medien und Ansagen als getrennte Kanaele, damit Ansagen laufende Musik
+  # ducken koennen statt sie zu unterbrechen
+  - platform: mixer
+    id: output_mixer
+    output_speaker: speaker_output
+    num_channels: 2
+    source_speakers:
+      - id: media_channel
+        timeout: never
+      - id: announcement_channel
+        timeout: never
+
+  - platform: resampler
+    id: media_input
+    output_speaker: media_channel
+  - platform: resampler
+    id: announcement_input
+    output_speaker: announcement_channel
+
+media_player:
+  - platform: speaker
+    id: sat_media_player
+    name: None            # Entity uebernimmt den Geraetenamen
+    internal: false
+    volume_increment: 5%
+    media_pipeline:
+      speaker: media_input
+      format: FLAC
+      sample_rate: ${i2s_sample_rate}
+      # Mono anfordern: der ES8311 ist ein Mono-DAC und wandelt nur den linken
+      # Kanal. Ohne diese Angabe erbt die Pipeline stereo und der rechte Kanal
+      # jeder Quelle ginge komplett verloren; mit mono downmixt der Sender.
+      num_channels: 1
+    announcement_pipeline:
+      speaker: announcement_input
+      format: FLAC
+      sample_rate: ${i2s_sample_rate}
+      num_channels: 1
+    files:
+      # Quelle: esphome/home-assistant-voice-pe (MIT), siehe NOTICE.md
+      - id: timer_alert_sound
+        file: https://github.com/esphome/home-assistant-voice-pe/raw/dev/sounds/timer_finished.flac
+      # Quelle: esphome/home-assistant-voice-pe (MIT), siehe NOTICE.md
+      - id: wake_ack_sound
+        file: https://github.com/esphome/home-assistant-voice-pe/raw/dev/sounds/wake_word_triggered.flac
+    on_announcement:
+      - mixer_speaker.apply_ducking:
+          id: media_channel
+          decibel_reduction: 20
+          duration: 0.0s
+    on_state:
+      # Musik wieder auf volle Lautstaerke, sobald weder Ansage noch Assistent
+      # noch Timer-Klingeln aktiv sind
+      - if:
+          condition:
+            and:
+              - not:
+                  media_player.is_announcing:
+              - not:
+                  voice_assistant.is_running:
+              - switch.is_off: timer_active
+          then:
+            - mixer_speaker.apply_ducking:
+                id: media_channel
+                decibel_reduction: 0
+                duration: 1.0s

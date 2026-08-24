@@ -1,0 +1,65 @@
+# Waveshare ESP32-S3-AUDIO im Vollduplex-TDM-Betrieb (AEC-Vollausbau):
+# EIN I2S-Controller besitzt beide Richtungen, der ESP ist Bus-Master.
+# RX (dauerhaft aktiv, Clock-Master): ES7210-TDM mit 4 Slots -
+# gemessenes Layout MIC1, Echo-Referenz (ADC3, Abgriff am DAC-Ausgang),
+# MIC2, unbenutzt. TX: Standard-I2S 16-in-32 fuer den ES8311 (Slave).
+
+substitutions:
+  name_amplifier: Amplifier
+
+i2c:
+  - id: i2c_bus
+    sda: GPIO11
+    scl: GPIO10
+    frequency: 100kHz
+
+# GPIO-Expander traegt Verstaerker-Enable und die drei Tasten
+tca9555:
+  id: io_expander
+  i2c_id: i2c_bus
+  address: 0x20
+
+i2s_audio:
+  - id: i2s_duplex
+    i2s_mclk_pin: GPIO12
+    i2s_bclk_pin: GPIO13
+    i2s_lrclk_pin: GPIO14
+    duplex:
+      i2s_dout_pin: GPIO16
+      i2s_din_pin: GPIO15
+      sample_rate: ${i2s_sample_rate}
+      slot_bit_width: 16
+      total_slots: 4
+      tx_slots: [0, 2]
+      rx_slots: [0, 1, 2, 3]
+      mclk_multiple: ${mclk_multiple}
+
+audio_adc:
+  - platform: es7210
+    id: mic_adc
+    i2c_id: i2c_bus
+    sample_rate: ${i2s_sample_rate}
+    bits_per_sample: 16bit
+    mic_gain: 33db
+    tdm: true
+    reference_channel: 3   # ADC3 = Echo-Referenz, fest 0 dB (unabhaengig vom Mic-Gain)
+
+audio_dac:
+  # gepatchter Upstream-es8311: Lautstaerkeregler linear in dB (siehe NOTICE.md)
+  - platform: es8311
+    id: speaker_dac
+    i2c_id: i2c_bus
+    use_mclk: true
+    sample_rate: ${i2s_sample_rate}
+    bits_per_sample: 16bit
+
+switch:
+  - platform: gpio
+    id: amp_enable
+    name: ${name_amplifier}
+    icon: mdi:speaker
+    entity_category: config
+    restore_mode: RESTORE_DEFAULT_ON
+    pin:
+      tca9555: io_expander
+      number: 8   # PA_EN; Waveshare zaehlt 1-basiert und nennt ihn "EXIO9"

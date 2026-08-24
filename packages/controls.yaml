@@ -1,0 +1,146 @@
+# Bedienelemente: die drei Hardware-Tasten, Mikrofon-Stummschaltung und Regler
+# Alle user-facing Namen sind Substitutions (englische Defaults hier; deutsche
+# Overrides in kustos-voice-de.yaml)
+
+substitutions:
+  name_key_volume_down: Volume down button
+  name_key_play_pause: Play-pause button
+  name_key_volume_up: Volume up button
+  name_mic_mute: Mute microphone
+  name_wake_ack: Wake sound
+  name_mic_gain: Microphone gain
+  name_stt_noise_suppression: STT noise suppression
+  name_wake_word_cutoff: Wake word threshold
+  name_restart: Restart
+
+binary_sensor:
+  - platform: gpio
+    id: key_volume_down
+    name: ${name_key_volume_down}
+    pin:
+      tca9555: io_expander
+      number: 9
+      inverted: true
+    on_press:
+      - media_player.volume_down: sat_media_player
+
+  - platform: gpio
+    id: key_play_pause
+    name: ${name_key_play_pause}
+    pin:
+      tca9555: io_expander
+      number: 10
+      inverted: true
+    on_press:
+      - media_player.toggle: sat_media_player
+
+  - platform: gpio
+    id: key_volume_up
+    name: ${name_key_volume_up}
+    pin:
+      tca9555: io_expander
+      number: 11
+      inverted: true
+    on_press:
+      - media_player.volume_up: sat_media_player
+
+switch:
+  # Software-Stummschaltung: setzt den Analog-Gain des ES7210 auf 0 dB.
+  # Wake-Word-Treffer werden zusaetzlich in handle_wake_word ignoriert.
+  - platform: template
+    id: mic_mute
+    name: ${name_mic_mute}
+    icon: mdi:microphone-off
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+    on_turn_on:
+      - lambda: id(mic_adc).set_mic_gain(0.0f);
+      - script.execute:
+          id: led_show
+          state: !lambda return id(led_base_state);
+    on_turn_off:
+      - lambda: id(mic_adc).set_mic_gain(id(mic_gain).state);
+      - script.execute:
+          id: led_show
+          state: !lambda return id(led_base_state);
+
+  # hoerbare Bestaetigung jeder Wake-Word-Erkennung (siehe handle_wake_word)
+  - platform: template
+    id: wake_ack
+    name: ${name_wake_ack}
+    icon: mdi:bell-ring-outline
+    entity_category: config
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_ON
+
+number:
+  # Analog-Gain des Mikrofon-ADC, live wirksam (on_value greift auch beim
+  # Wiederherstellen nach einem Neustart). Wertebereich und Schrittweite folgen
+  # der PGA-Stufentabelle des ES7210 (ESPHome-es7210: ES7210_MIC_GAIN_MAX = 37.5 dB,
+  # oberste Stufen im 1,5-dB-Raster).
+  - platform: template
+    id: mic_gain
+    name: ${name_mic_gain}
+    icon: mdi:microphone-plus
+    entity_category: config
+    unit_of_measurement: dB
+    optimistic: true
+    restore_value: true
+    min_value: 0
+    max_value: 37.5
+    step: 1.5
+    initial_value: 33
+    mode: slider
+    on_value:
+      - if:
+          condition:
+            switch.is_off: mic_mute
+          then:
+            - lambda: id(mic_adc).set_mic_gain(x);
+
+  # Rauschunterdrueckung des Audio-Streams an die Spracherkennung (0 = aus,
+  # 4 = maximal). Wirkt nur auf den STT-Pfad, nicht auf das Wake Word, das
+  # seinen eigenen Audio-Abgriff vor dieser Stufe hat.
+  - platform: template
+    id: stt_noise_suppression
+    name: ${name_stt_noise_suppression}
+    icon: mdi:waveform
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    min_value: 0
+    max_value: 4
+    step: 1
+    initial_value: 4
+    mode: slider
+    on_value:
+      - lambda: id(va).set_noise_suppression_level((uint8_t) x);
+
+  # Erkennungsschwelle, live wirksam auf ALLE waehlbaren Wake-Word-Modelle
+  # (auch spaeter ergaenzte, z. B. selbst trainierte); nur das interne
+  # Stop-Modell behaelt seine eigene Schwelle
+  - platform: template
+    id: wake_word_cutoff
+    name: ${name_wake_word_cutoff}
+    icon: mdi:tune
+    entity_category: config
+    optimistic: true
+    restore_value: true
+    min_value: 0.5
+    max_value: 0.97
+    step: 0.01
+    initial_value: 0.83
+    mode: slider
+    on_value:
+      - lambda: |-
+          // microWakeWord quantisiert die Schwelle als uint8 (0-255);
+          // get_wake_words() liefert alle nicht-internen Modelle
+          for (auto *model : id(mww).get_wake_words()) {
+            model->set_probability_cutoff((uint8_t) lroundf(x * 255.0f));
+          }
+
+button:
+  - platform: restart
+    name: ${name_restart}
+    entity_category: config
+    disabled_by_default: true
